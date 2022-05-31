@@ -1,0 +1,137 @@
+Description:  This template deploys a VPC with 2 public and 2 private subnets.An EC2 in the public subnet via user data scripts 
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: ExcerciseNetwork
+
+Resources:
+  practicevpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}VPC
+  practiceigw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentName}IGW
+  practiceigwVPCattachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref practiceigw
+      VpcId: !Ref practicevpc
+  public1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      VpcId: !Ref practicevpc
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}PublicSub1
+
+  public2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      VpcId: !Ref practicevpc
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}PublicSub2
+
+  private1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      VpcId: !Ref practicevpc
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}PrivateSub1
+
+  private2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      VpcId: !Ref practicevpc
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-PrivateSub1
+  practicertb:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: !Sub ${EnvironmentName}RouteTable
+      VpcId: !Ref practicevpc
+  publicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: practiceigwVPCattachment
+    Properties:
+      RouteTableId: !Ref practicertb
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref practiceigw
+  public1rta:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref practicertb
+      SubnetId: !Ref public1
+  public2rta:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref practicertb
+      SubnetId: !Ref public2
+  practicesg:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: http access to ec2
+      GroupName: port80EC2
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags: 
+        - Key: Name
+          Value: !Sub ${EnvironmentName}sg
+      VpcId: !Ref practicevpc
+  server:
+    Type: AWS::EC2::Instance
+    Properties: 
+      InstanceType: t2.micro
+      ImageId: ami-0022f774911c1d690
+      KeyName: EC2key
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - !Ref practicesg
+          SubnetId: !Ref public1
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+          yum install -y httpd mariadb-server
+          systemctl start httpd
+          systemctl enable httpd
+          usermod -a -G apache ec2-user
+          chown -R ec2-user:apache /var/www
+          chmod 2775 /var/www
+          find /var/www -type d -exec chmod 2775 {} \;
+          find /var/www -type f -exec chmod 0664 {} \;
+          echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php
+
+
